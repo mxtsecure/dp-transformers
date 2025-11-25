@@ -90,17 +90,39 @@ def main(args: Arguments):
     model = model.to(train_args.device)
 
     # Load data
-    dataset = datasets.load_dataset('reddit', split="train[:500000]").train_test_split(0.02, seed=args.train.seed)
+    dataset = datasets.load_dataset("locuslab/tofu", split="forget10").train_test_split(0.02, seed=args.train.seed)
 
     # Load tokenizer
     tokenizer = transformers.AutoTokenizer.from_pretrained(args.model.model_name)
     tokenizer.pad_token = tokenizer.eos_token
 
+    def build_prompt(batch):
+        texts = []
+        for question, answer in zip(batch["question"], batch["answer"]):
+            text = tokenizer.apply_chat_template(
+                [
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": question},
+                    {"role": "assistant", "content": answer},
+                ],
+                tokenize=False,
+            )
+            texts.append(text)
+        return tokenizer(
+            texts,
+            padding="max_length",
+            truncation=True,
+            max_length=args.model.sequence_len,
+        )
+
     # Tokenize data
     with train_args.main_process_first(desc="tokenizing dataset"):
         dataset = dataset.map(
-            lambda batch: tokenizer(batch['content'], padding="max_length", truncation=True, max_length=args.model.sequence_len),
-            batched=True, num_proc=8, desc="tokenizing dataset", remove_columns=dataset.column_names['train']
+            build_prompt,
+            batched=True,
+            num_proc=8,
+            desc="tokenizing dataset",
+            remove_columns=dataset.column_names["train"],
         )
 
     if args.lora.enable_lora:
